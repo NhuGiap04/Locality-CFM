@@ -11,16 +11,16 @@ To reproduce the experiments and save the weights, install the requirements from
 - For the OT-Conditional Flow Matching method:
 
 ```bash
- python3 train_cifar10.py --model "otcfm" --lr 2e-4 --ema_decay 0.9999 --batch_size 128 --total_steps 400001 --save_step 2000
+python3 train_cifar10.py --model "otcfm" --lr 2e-4 --ema_decay 0.9999 --batch_size 128 --total_steps 400001 --save_step 2000
 ```
 
 
 ```bash
- python train_cifar10_locality.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_local=1.0 --local_lambda_size=medium # Locality
+python train_cifar10_locality.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_local=1.0 --local_lambda_size=medium # Locality
 ```
 
 ```bash
- python train_cifar10_anchor.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_anchor=1.0 --anchor_loss_type=full --centroid_update_freq=1000 # Anchor
+python train_cifar10_anchor.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_anchor=1.0 --anchor_loss_type=full --centroid_update_freq=1000 # Anchor
 ```
 
 - For the Independent Conditional Flow Matching (I-CFM) method:
@@ -57,4 +57,3 @@ For the other models, change the "otcfm" argument by "icfm" or "fm". For easy re
 
 To recompute the FID, change the PATH variable with where you have saved the downloaded weights.
 
-If you find this code useful in your research, please cite the following papers (expand for BibTeX):
