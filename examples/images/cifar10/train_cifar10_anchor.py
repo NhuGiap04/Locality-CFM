@@ -407,10 +407,9 @@ def train(argv):
             # Log loss to wandb with class information
             wandb.log({
                 "loss_fm": loss_fm.item(),
-                "loss_anchor": loss_anchor.item(),
+                "regularized_loss": loss_anchor.item(),
                 "step": step, 
                 "lr": sched.get_last_lr()[0],
-                "sampled_class": sampled_class
             })
             pbar.set_postfix({
                 "loss": loss.item(), 

@@ -355,10 +355,9 @@ def train(argv):
             # Log loss to wandb with class information
             wandb.log({
                 "loss_fm": loss_fm.item(),
-                "loss_local": loss_local.item() if batch_size > 1 else 0.0,
+                "regularized_loss": loss_local.item() if batch_size > 1 else 0.0,
                 "step": step, 
                 "lr": sched.get_last_lr()[0],
-                "sampled_class": sampled_class
             })
             pbar.set_postfix({"loss": loss.item(), "loss_fm": loss_fm.item(), "loss_local": loss_local.item() if batch_size > 1 else 0.0, "class": sampled_class})
 
@@ -382,7 +381,7 @@ def train(argv):
                         "optim": optim.state_dict(),
                         "step": step,
                     },
-                    savedir + f"{FLAGS.model}_cifar10_localaware_size_{FLAGS.local_lambda_size}_weights_step_{step}.pt",
+                    savedir + f"{FLAGS.model}_cifar10_local_size_{FLAGS.local_lambda_size}_weights_step_{step}.pt",
                 )
 
 
