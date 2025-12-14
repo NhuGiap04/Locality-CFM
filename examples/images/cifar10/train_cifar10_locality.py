@@ -41,8 +41,8 @@ flags.DEFINE_integer("batch_size", 128, help="batch size")  # Lipman et al uses 
 flags.DEFINE_integer("num_workers", 4, help="workers of Dataloader")
 flags.DEFINE_float("ema_decay", 0.9999, help="ema decay rate")
 flags.DEFINE_bool("parallel", False, help="multi gpu training")
-flags.DEFINE_float("lambda_local", 1.0, help="weight for local regularization term")
-flags.DEFINE_string("local_lambda_size", "medium", help="size of local region for local regularization")
+flags.DEFINE_float("lambda_local", 1.0, help="Lambda value as string for logging")
+flags.DEFINE_string("lambda_name", "1e0", help="size of local region for local regularization")
 
 # Evaluation
 flags.DEFINE_integer(
@@ -208,7 +208,7 @@ def train(argv):
     # Initialize wandb
     wandb.init(
         project="conditional-flow-matching",
-        name=f"{FLAGS.model}_cifar10_localaware_size_{FLAGS.local_lambda_size}",
+        name=f"{FLAGS.model}_cifar10_local_{FLAGS.lambda_name}",
         config={
             "model": FLAGS.model,
             "lr": FLAGS.lr,
@@ -219,6 +219,7 @@ def train(argv):
             "grad_clip": FLAGS.grad_clip,
             "warmup": FLAGS.warmup,
             "lambda_local": FLAGS.lambda_local,
+            "lambda_name": FLAGS.lambda_name,
         },
     )
     
@@ -381,7 +382,7 @@ def train(argv):
                         "optim": optim.state_dict(),
                         "step": step,
                     },
-                    savedir + f"{FLAGS.model}_cifar10_local_size_{FLAGS.local_lambda_size}_weights_step_{step}.pt",
+                    savedir + f"{FLAGS.model}_cifar10_local_{FLAGS.lambda_name}_weights_step_{step}.pt",
                 )
 
 

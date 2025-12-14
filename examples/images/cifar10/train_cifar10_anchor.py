@@ -42,7 +42,7 @@ flags.DEFINE_integer("num_workers", 4, help="workers of Dataloader")
 flags.DEFINE_float("ema_decay", 0.9999, help="ema decay rate")
 flags.DEFINE_bool("parallel", False, help="multi gpu training")
 flags.DEFINE_float("lambda_anchor", 1.0, help="weight for anchor regularization term")
-flags.DEFINE_string("anchor_loss_type", "full", help="anchor loss type: 'full' (Eq. 5) or 'simple' (Eq. 6)")
+flags.DEFINE_string("lambda_name", "1e0", help="Lambda value as string for logging")
 flags.DEFINE_integer("centroid_update_freq", 1000, help="frequency of updating class centroids")
 
 # Evaluation
@@ -248,7 +248,7 @@ def train(argv):
     # Initialize wandb
     wandb.init(
         project="conditional-flow-matching",
-        name=f"{FLAGS.model}_cifar10_anchor_{FLAGS.anchor_loss_type}",
+        name=f"{FLAGS.model}_cifar10_anchor_{FLAGS.lambda_name}",
         config={
             "model": FLAGS.model,
             "lr": FLAGS.lr,
@@ -259,7 +259,7 @@ def train(argv):
             "grad_clip": FLAGS.grad_clip,
             "warmup": FLAGS.warmup,
             "lambda_anchor": FLAGS.lambda_anchor,
-            "anchor_loss_type": FLAGS.anchor_loss_type,
+            "lambda_name": FLAGS.lambda_name,
             "centroid_update_freq": FLAGS.centroid_update_freq,
         },
     )
@@ -439,7 +439,7 @@ def train(argv):
                         "step": step,
                         "class_centroids": class_centroids,
                     },
-                    savedir + f"{FLAGS.model}_cifar10_anchor_{FLAGS.anchor_loss_type}_weights_step_{step}.pt",
+                    savedir + f"{FLAGS.model}_cifar10_anchor_{FLAGS.lambda_name}_weights_step_{step}.pt",
                 )
 
 
