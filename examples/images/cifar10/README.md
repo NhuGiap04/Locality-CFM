@@ -11,7 +11,16 @@ To reproduce the experiments and save the weights, install the requirements from
 - For the OT-Conditional Flow Matching method:
 
 ```bash
-python3 train_cifar10.py --model "otcfm" --lr 2e-4 --ema_decay 0.9999 --batch_size 128 --total_steps 400001 --save_step 20000
+ python3 train_cifar10.py --model "otcfm" --lr 2e-4 --ema_decay 0.9999 --batch_size 128 --total_steps 400001 --save_step 2000
+```
+
+
+```bash
+ python train_cifar10_locality.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_local=1.0 --local_lambda_size=medium # Locality
+```
+
+```bash
+ python train_cifar10_anchor.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_anchor=1.0 --anchor_loss_type=full --centroid_update_freq=1000 # Anchor
 ```
 
 - For the Independent Conditional Flow Matching (I-CFM) method:
@@ -49,33 +58,3 @@ For the other models, change the "otcfm" argument by "icfm" or "fm". For easy re
 To recompute the FID, change the PATH variable with where you have saved the downloaded weights.
 
 If you find this code useful in your research, please cite the following papers (expand for BibTeX):
-
-<details>
-<summary>
-A. Tong, N. Malkin, G. Huguet, Y. Zhang, J. Rector-Brooks, K. Fatras, G. Wolf, Y. Bengio. Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport, 2023.
-</summary>
-
-```bibtex
-@article{tong2023improving,
-  title={Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport},
-  author={Tong, Alexander and Malkin, Nikolay and Huguet, Guillaume and Zhang, Yanlei and {Rector-Brooks}, Jarrid and Fatras, Kilian and Wolf, Guy and Bengio, Yoshua},
-  year={2023},
-  journal={arXiv preprint 2302.00482}
-}
-```
-
-</details>
-
-<details>
-<summary>
-A. Tong, N. Malkin, K. Fatras, L. Atanackovic, Y. Zhang, G. Huguet, G. Wolf, Y. Bengio. Simulation-Free Schrödinger Bridges via Score and Flow Matching, 2023.
-</summary>
-
-```bibtex
-@article{tong2023simulation,
-   title={Simulation-Free Schr{\"o}dinger Bridges via Score and Flow Matching},
-   author={Tong, Alexander and Malkin, Nikolay and Fatras, Kilian and Atanackovic, Lazar and Zhang, Yanlei and Huguet, Guillaume and Wolf, Guy and Bengio, Yoshua},
-   year={2023},
-   journal={arXiv preprint 2307.03672}
-}
-```

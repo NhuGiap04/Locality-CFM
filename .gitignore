@@ -173,3 +173,6 @@ slurm*.out
 notebooks/figures/
 
 .DS_Store
+
+# Folders
+results
