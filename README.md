@@ -129,7 +129,7 @@ To use the full library with the different examples, you can install dependencie
 
 ```bash
 # clone project
-git clone https://github.com/atong01/conditional-flow-matching.git
+git clone https://github.com/NhuGiap04/Locality-CFM.git
 cd conditional-flow-matching
 
 # [OPTIONAL] create conda environment
