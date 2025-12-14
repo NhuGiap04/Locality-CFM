@@ -295,7 +295,7 @@ def train(argv):
             f"Unknown model {FLAGS.model}, must be one of ['otcfm', 'icfm', 'fm', 'si']"
         )
 
-    savedir = FLAGS.output_dir + FLAGS.model + f"_localaware_size_{FLAGS.local_lambda_size}/"
+    savedir = FLAGS.output_dir + FLAGS.model + f"_local_{FLAGS.lambda_name}/"
     os.makedirs(savedir, exist_ok=True)
 
     with trange(FLAGS.total_steps, dynamic_ncols=True) as pbar:
