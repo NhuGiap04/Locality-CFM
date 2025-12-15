@@ -203,12 +203,8 @@ def train(argv):
     if FLAGS.checkpoint_path:
         print(f"Loading checkpoint from {FLAGS.checkpoint_path}")
         checkpoint = torch.load(FLAGS.checkpoint_path, map_location=device)
-        if FLAGS.parallel:
-            net_model.module.load_state_dict(checkpoint["net_model"])
-            ema_model.module.load_state_dict(checkpoint["ema_model"])
-        else:
-            net_model.load_state_dict(checkpoint["net_model"])
-            ema_model.load_state_dict(checkpoint["ema_model"])
+        net_model.load_state_dict(checkpoint["net_model"])
+        ema_model.load_state_dict(checkpoint["ema_model"])
         optim.load_state_dict(checkpoint["optim"])
         sched.load_state_dict(checkpoint["sched"])
         start_step = checkpoint.get("step", 0)
