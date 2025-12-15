@@ -42,6 +42,9 @@ flags.DEFINE_integer("num_workers", 4, help="workers of Dataloader")
 flags.DEFINE_float("ema_decay", 0.9999, help="ema decay rate")
 flags.DEFINE_bool("parallel", False, help="multi gpu training")
 
+# Checkpoint
+flags.DEFINE_string("checkpoint_path", "", help="path to checkpoint file to resume training from")
+
 # Evaluation
 flags.DEFINE_integer(
     "save_step",
@@ -195,6 +198,22 @@ def train(argv):
         model_size += param.data.nelement()
     print("Model params: %.2f M" % (model_size / 1024 / 1024))
 
+    # Load checkpoint if provided
+    start_step = 0
+    if FLAGS.checkpoint_path:
+        print(f"Loading checkpoint from {FLAGS.checkpoint_path}")
+        checkpoint = torch.load(FLAGS.checkpoint_path, map_location=device)
+        if FLAGS.parallel:
+            net_model.module.load_state_dict(checkpoint["net_model"])
+            ema_model.module.load_state_dict(checkpoint["ema_model"])
+        else:
+            net_model.load_state_dict(checkpoint["net_model"])
+            ema_model.load_state_dict(checkpoint["ema_model"])
+        optim.load_state_dict(checkpoint["optim"])
+        sched.load_state_dict(checkpoint["sched"])
+        start_step = checkpoint.get("step", 0)
+        print(f"Resumed from step {start_step}")
+
     #################################
     #            OT-CFM
     #################################
@@ -216,7 +235,7 @@ def train(argv):
     savedir = FLAGS.output_dir + FLAGS.model + "/"
     os.makedirs(savedir, exist_ok=True)
 
-    with trange(FLAGS.total_steps, dynamic_ncols=True) as pbar:
+    with trange(start_step, FLAGS.total_steps, dynamic_ncols=True, initial=start_step, total=FLAGS.total_steps) as pbar:
         for step in pbar:
             optim.zero_grad()
             x1 = next(datalooper).to(device)

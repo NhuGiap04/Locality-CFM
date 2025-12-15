@@ -20,8 +20,29 @@ python train_cifar10_locality.py --model=otcfm --batch_size=128 --total_steps=40
 ```
 
 ```bash
-python train_cifar10_anchor.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_anchor=1.0 --lambda_name=1e0 --centroid_update_freq=1000 # Anchor
+python train_cifar10_anchor.py --model=otcfm --batch_size=128 --total_steps=400001 --save_step=20000 --lambda_anchor=1.0 --lambda_name=1e0 --centroid_update_freq=1000 --anchor_loss_type=full # Anchor
 ```
+
+### Resuming from Checkpoints
+
+All training scripts support resuming from a saved checkpoint using the `--checkpoint_path` flag:
+
+```bash
+# Resume standard training
+python train_cifar10.py --model=otcfm --checkpoint_path=./results/otcfm/otcfm_cifar10_weights_step_20000.pt
+
+# Resume locality training
+python train_cifar10_locality.py --model=otcfm --checkpoint_path=./results/otcfm_local_1e0/otcfm_cifar10_local_1e0_weights_step_20000.pt --lambda_local=1.0 --lambda_name=1e0
+
+# Resume anchor training
+python train_cifar10_anchor.py --model=otcfm --checkpoint_path=./results/otcfm_anchor_full/otcfm_cifar10_anchor_1e0_weights_step_20000.pt --lambda_anchor=1.0 --lambda_name=1e0 --anchor_loss_type=full
+```
+
+When resuming from a checkpoint, the training will automatically:
+- Load model weights (both main model and EMA model)
+- Restore optimizer and learning rate scheduler states
+- Resume training from the saved step
+- For anchor training, also restore class centroids if available
 
 - For the Independent Conditional Flow Matching (I-CFM) method:
 

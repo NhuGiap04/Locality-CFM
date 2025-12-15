@@ -44,6 +44,9 @@ flags.DEFINE_bool("parallel", False, help="multi gpu training")
 flags.DEFINE_float("lambda_local", 1.0, help="Lambda value as string for logging")
 flags.DEFINE_string("lambda_name", "1e0", help="size of local region for local regularization")
 
+# Checkpoint
+flags.DEFINE_string("checkpoint_path", "", help="path to checkpoint file to resume training from")
+
 # Evaluation
 flags.DEFINE_integer(
     "save_step",
@@ -277,6 +280,22 @@ def train(argv):
         model_size += param.data.nelement()
     print("Model params: %.2f M" % (model_size / 1024 / 1024))
 
+    # Load checkpoint if provided
+    start_step = 0
+    if FLAGS.checkpoint_path:
+        print(f"Loading checkpoint from {FLAGS.checkpoint_path}")
+        checkpoint = torch.load(FLAGS.checkpoint_path, map_location=device)
+        if FLAGS.parallel:
+            net_model.module.load_state_dict(checkpoint["net_model"])
+            ema_model.module.load_state_dict(checkpoint["ema_model"])
+        else:
+            net_model.load_state_dict(checkpoint["net_model"])
+            ema_model.load_state_dict(checkpoint["ema_model"])
+        optim.load_state_dict(checkpoint["optim"])
+        sched.load_state_dict(checkpoint["sched"])
+        start_step = checkpoint.get("step", 0)
+        print(f"Resumed from step {start_step}")
+
     #################################
     #            OT-CFM
     #################################
@@ -298,7 +317,7 @@ def train(argv):
     savedir = FLAGS.output_dir + FLAGS.model + f"_local_{FLAGS.lambda_name}/"
     os.makedirs(savedir, exist_ok=True)
 
-    with trange(FLAGS.total_steps, dynamic_ncols=True) as pbar:
+    with trange(start_step, FLAGS.total_steps, dynamic_ncols=True, initial=start_step, total=FLAGS.total_steps) as pbar:
         for step in pbar:
             optim.zero_grad()
             
