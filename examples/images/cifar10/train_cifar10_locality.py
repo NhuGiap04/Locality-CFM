@@ -59,6 +59,40 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
+def load_state_dict_flexible(model, state_dict, is_parallel):
+    """
+    Load state dict handling mismatch between single GPU and DataParallel checkpoints.
+    
+    Parameters
+    ----------
+    model:
+        The model to load weights into
+    state_dict: dict
+        The state dictionary from checkpoint
+    is_parallel: bool
+        Whether the current model is wrapped in DataParallel
+    """
+    # Check if checkpoint was saved with DataParallel (keys start with 'module.')
+    checkpoint_is_parallel = any(k.startswith('module.') for k in state_dict.keys())
+    
+    if is_parallel and not checkpoint_is_parallel:
+        # Current model is parallel, but checkpoint is from single GPU
+        # Add 'module.' prefix to all keys
+        new_state_dict = {'module.' + k: v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict)
+        print("Loaded single GPU checkpoint into DataParallel model")
+    elif not is_parallel and checkpoint_is_parallel:
+        # Current model is single GPU, but checkpoint is from DataParallel
+        # Remove 'module.' prefix from all keys
+        new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict)
+        print("Loaded DataParallel checkpoint into single GPU model")
+    else:
+        # Both match, load directly
+        model.load_state_dict(state_dict)
+        print(f"Loaded checkpoint directly ({'DataParallel' if is_parallel else 'single GPU'} mode)")
+
+
 def warmup_lr(step):
     return min(step, FLAGS.warmup) / FLAGS.warmup
 
@@ -285,8 +319,8 @@ def train(argv):
     if FLAGS.checkpoint_path:
         print(f"Loading checkpoint from {FLAGS.checkpoint_path}")
         checkpoint = torch.load(FLAGS.checkpoint_path, map_location=device)
-        net_model.load_state_dict(checkpoint["net_model"])
-        ema_model.load_state_dict(checkpoint["ema_model"])
+        load_state_dict_flexible(net_model, checkpoint["net_model"], FLAGS.parallel)
+        load_state_dict_flexible(ema_model, checkpoint["ema_model"], FLAGS.parallel)
         optim.load_state_dict(checkpoint["optim"])
         sched.load_state_dict(checkpoint["sched"])
         start_step = checkpoint.get("step", 0)
