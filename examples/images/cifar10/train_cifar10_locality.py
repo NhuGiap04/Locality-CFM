@@ -412,7 +412,7 @@ def train(argv):
             pbar.set_postfix({"loss": loss.item(), "loss_fm": loss_fm.item(), "loss_local": loss_local.item() if batch_size > 1 else 0.0, "class": sampled_class})
 
             # sample and Saving the weights
-            if FLAGS.save_step > 0 and step % FLAGS.save_step == 0:
+            if FLAGS.save_step > 0 and step % FLAGS.save_step == 0 and step > 0:
                 generate_samples(net_model, FLAGS.parallel, savedir, step, net_="normal")
                 generate_samples(ema_model, FLAGS.parallel, savedir, step, net_="ema")
                 
