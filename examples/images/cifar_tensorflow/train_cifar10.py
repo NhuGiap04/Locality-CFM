@@ -25,6 +25,7 @@ import time
 import argparse
 import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
 
 # Local imports
 from unet import UNetModelWrapper, create_unet_cifar10
@@ -326,6 +327,11 @@ def train(args):
     epoch = 0
     start_time = time.time()
     
+    # Create progress bar
+    pbar = tqdm(total=args.total_steps, initial=start_step, 
+                desc="Training", unit="step", 
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+    
     while step < args.total_steps:
         epoch += 1
         
@@ -347,15 +353,12 @@ def train(args):
                 x0_same_class = tf.random.normal(tf.shape(x1_same_class))
                 local_loss = compute_local_loss(model, x1_same_class, x0_same_class)
                 
-                # Logging
-                elapsed = time.time() - start_time
-                steps_per_sec = (step - start_step + 1) / elapsed if elapsed > 0 else 0
-                
-                print(f"Step {step}/{args.total_steps} | "
-                      f"Loss: {loss.numpy():.4f} | "
-                      f"Local Loss: {local_loss.numpy():.4f} | "
-                      f"Grad Norm: {grad_norm.numpy():.4f} | "
-                      f"Speed: {steps_per_sec:.2f} steps/s")
+                # Update progress bar with metrics
+                pbar.set_postfix({
+                    'loss': f'{loss.numpy():.4f}',
+                    'local': f'{local_loss.numpy():.4f}',
+                    'grad': f'{grad_norm.numpy():.3f}'
+                })
                 
                 if args.use_wandb:
                     wandb.log({
@@ -368,7 +371,7 @@ def train(args):
             
             # Save checkpoint and generate samples
             if args.save_step > 0 and step % args.save_step == 0 and step > 0:
-                print(f"\nSaving checkpoint at step {step}...")
+                pbar.write(f"Saving checkpoint at step {step}...")
                 
                 # Generate and save samples
                 generate_and_save_samples(model, save_dir, step, 
@@ -379,9 +382,13 @@ def train(args):
                 # Save checkpoint
                 save_checkpoint(model, ema_model, optimizer, step, save_dir, args.model)
                 
-                print(f"Checkpoint saved at step {step}\n")
+                pbar.write(f"Checkpoint saved at step {step}")
             
             step += 1
+            pbar.update(1)
+    
+    # Close progress bar
+    pbar.close()
     
     # Final save
     print("Training complete! Saving final checkpoint...")
