@@ -24,6 +24,10 @@ import copy
 import time
 import argparse
 import numpy as np
+import warnings
+
+# Suppress TensorFlow warnings about CUDA when GPU is not available
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warning, 3=error
 import tensorflow as tf
 from tqdm import tqdm
 
@@ -67,8 +71,11 @@ def parse_args():
                        help='Visualize clustering results by saving sample images')
     
     # TPU/GPU settings
-    parser.add_argument('--use_tpu', type=bool, default=False,
-                       help='Use TPU for training')
+    parser.add_argument('--use_tpu', action='store_true',
+                       help='Use TPU for training (auto-detects if available)')
+    parser.add_argument('--no_tpu', dest='use_tpu', action='store_false',
+                       help='Force disable TPU even if available')
+    parser.set_defaults(use_tpu=False)
     parser.add_argument('--tpu_name', type=str, default=None,
                        help='TPU name (for Cloud TPU)')
     parser.add_argument('--tpu_zone', type=str, default=None,
@@ -95,6 +102,16 @@ def parse_args():
     return parser.parse_args()
 
 
+def detect_tpu():
+    """Detect if TPU is available and return TPU address."""
+    try:
+        # Try to detect TPU
+        resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
+        return resolver.cluster_spec().as_dict()['worker']
+    except (ValueError, KeyError):
+        return None
+
+
 def setup_strategy(args):
     """
     Setup the distribution strategy based on available hardware.
@@ -107,30 +124,45 @@ def setup_strategy(args):
     if args.use_tpu:
         # TPU setup
         try:
+            # Auto-detect TPU if no name provided
+            if not args.tpu_name:
+                tpu_address = detect_tpu()
+                if tpu_address:
+                    print(f"Detected TPU: {tpu_address}")
+                else:
+                    # Try common Kaggle/Colab patterns
+                    tpu_name = os.environ.get('TPU_NAME', os.environ.get('COLAB_TPU_ADDR', ''))
+                    if not tpu_name:
+                        raise ValueError(
+                            "No TPU detected. On Kaggle, go to Settings → Accelerator → TPU v3-8. "
+                            "On Colab, go to Runtime → Change runtime type → TPU."
+                        )
+                    args.tpu_name = tpu_name
+            
+            # Initialize TPU
             if args.tpu_name:
+                # Remove grpc:// prefix if present (Colab format)
+                tpu_name = args.tpu_name.replace('grpc://', '')
                 resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-                    tpu=args.tpu_name,
+                    tpu=tpu_name,
                     zone=args.tpu_zone,
                     project=args.gcp_project
                 )
             else:
-                # Try to detect TPU automatically (for Colab/Kaggle)
-                # Check for TPU_NAME environment variable first
-                import os
-                tpu_name = os.environ.get('TPU_NAME', 'local')
-                if tpu_name == 'local' or not tpu_name:
-                    # For Colab TPU v2/v3, use 'local'
-                    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='')
-                else:
-                    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+                # Let TensorFlow auto-detect
+                resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
             
             tf.config.experimental_connect_to_cluster(resolver)
             tf.tpu.experimental.initialize_tpu_system(resolver)
             strategy = tf.distribute.TPUStrategy(resolver)
-            print(f"Running on TPU with {strategy.num_replicas_in_sync} replicas")
-        except (ValueError, RuntimeError) as e:
-            print(f"TPU initialization failed: {e}")
-            print("Falling back to GPU/CPU strategy")
+            print(f"✓ Running on TPU with {strategy.num_replicas_in_sync} replicas")
+        except (ValueError, RuntimeError, KeyError) as e:
+            error_msg = str(e)
+            print(f"⚠ TPU initialization failed: {error_msg}")
+            if 'TPU Name' in error_msg or 'No TPU' in error_msg:
+                print("  → Kaggle: Enable TPU in Settings → Accelerator → TPU v3-8")
+                print("  → Colab: Runtime → Change runtime type → TPU")
+            print("  Falling back to GPU/CPU...")
             args.use_tpu = False
             # Fall through to GPU/CPU setup below
     
@@ -139,13 +171,14 @@ def setup_strategy(args):
         gpus = tf.config.list_physical_devices('GPU')
         if len(gpus) > 1:
             strategy = tf.distribute.MirroredStrategy()
-            print(f"Running on {len(gpus)} GPUs")
+            print(f"✓ Running on {len(gpus)} GPUs")
         elif len(gpus) == 1:
             strategy = tf.distribute.get_strategy()  # Default strategy
-            print("Running on single GPU")
+            print("✓ Running on single GPU")
         else:
             strategy = tf.distribute.get_strategy()
-            print("Running on CPU")
+            print("✓ Running on CPU (no GPU/TPU detected)")
+            print("  Note: Training will be slower on CPU. Consider using GPU or TPU for faster training.")
     
     return strategy
 
