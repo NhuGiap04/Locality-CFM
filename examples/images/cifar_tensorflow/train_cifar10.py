@@ -350,7 +350,7 @@ def train(args):
                         'grad_norm': grad_norm.numpy(),
                         'learning_rate': optimizer.learning_rate(step).numpy(),
                         'step': step
-                    })
+                    }, step=step)
             
             # Save checkpoint and generate samples
             if args.save_step > 0 and step % args.save_step == 0 and step > 0:

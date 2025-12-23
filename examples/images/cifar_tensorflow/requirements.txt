@@ -22,4 +22,4 @@ tqdm>=4.65.0
 wandb>=0.15.0  # Optional, for experiment tracking
 
 # For mixed precision and optimization
-tensorflow-addons>=0.20.0  # Optional, for additional optimizers
+tensorflow-addons # Optional, for additional optimizers
