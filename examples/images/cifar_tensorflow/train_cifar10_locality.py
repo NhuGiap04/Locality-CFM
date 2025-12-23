@@ -105,20 +105,36 @@ def parse_args():
 def setup_strategy(args):
     """Setup the distribution strategy based on available hardware."""
     if args.use_tpu:
-        if args.tpu_name:
-            resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-                tpu=args.tpu_name,
-                zone=args.tpu_zone,
-                project=args.gcp_project
-            )
-        else:
-            resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
-        
-        tf.config.experimental_connect_to_cluster(resolver)
-        tf.tpu.experimental.initialize_tpu_system(resolver)
-        strategy = tf.distribute.TPUStrategy(resolver)
-        print(f"Running on TPU with {strategy.num_replicas_in_sync} replicas")
-    else:
+        # TPU setup
+        try:
+            if args.tpu_name:
+                resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
+                    tpu=args.tpu_name,
+                    zone=args.tpu_zone,
+                    project=args.gcp_project
+                )
+            else:
+                # Try to detect TPU automatically (for Colab/Kaggle)
+                # Check for TPU_NAME environment variable first
+                import os
+                tpu_name = os.environ.get('TPU_NAME', 'local')
+                if tpu_name == 'local' or not tpu_name:
+                    # For Colab TPU v2/v3, use 'local'
+                    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='')
+                else:
+                    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+            
+            tf.config.experimental_connect_to_cluster(resolver)
+            tf.tpu.experimental.initialize_tpu_system(resolver)
+            strategy = tf.distribute.TPUStrategy(resolver)
+            print(f"Running on TPU with {strategy.num_replicas_in_sync} replicas")
+        except (ValueError, RuntimeError) as e:
+            print(f"TPU initialization failed: {e}")
+            print("Falling back to GPU/CPU strategy")
+            args.use_tpu = False
+            # Fall through to GPU/CPU setup below
+    
+    if not args.use_tpu:
         gpus = tf.config.list_physical_devices('GPU')
         if len(gpus) > 1:
             strategy = tf.distribute.MirroredStrategy()
