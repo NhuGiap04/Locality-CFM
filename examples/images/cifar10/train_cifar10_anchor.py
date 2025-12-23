@@ -13,7 +13,7 @@ from cleanfid import fid
 from torchdiffeq import odeint
 from torchvision import datasets, transforms
 from tqdm import trange
-from utils_cifar import ema, generate_samples, infiniteloop
+from utils_cifar import ema, generate_samples, infiniteloop, ClassConditionedSampler, visualize_clusters
 
 from torchcfm.conditional_flow_matching import (
     ConditionalFlowMatcher,
@@ -45,6 +45,7 @@ flags.DEFINE_float("lambda_anchor", 1.0, help="weight for anchor regularization 
 flags.DEFINE_string("lambda_name", "1e0", help="Lambda value as string for logging")
 flags.DEFINE_integer("centroid_update_freq", 1000, help="frequency of updating class centroids")
 flags.DEFINE_string("anchor_loss_type", "full", help="type of anchor loss: 'full' or 'simple'")
+flags.DEFINE_integer("num_subclasses", 25, help="number of subclasses for class-conditioned sampling")
 
 # Checkpoint
 flags.DEFINE_string("checkpoint_path", "", help="path to checkpoint file to resume training from")
@@ -55,6 +56,8 @@ flags.DEFINE_integer(
     20000,
     help="frequency of saving checkpoints, 0 to disable during training",
 )
+
+flags.DEFINE_bool("visualize", True, help="visualize samples during training")
 
 
 use_cuda = torch.cuda.is_available()
@@ -160,122 +163,43 @@ def compute_fid_score(model, parallel, num_gen=10000, batch_size_fid=512, integr
     return score
 
 
-class ClassConditionedSampler:
+def compute_class_centroids(dataset, class_sampler, device='cuda'):
     """
-    A sampler that provides batches of samples from the same class.
+    Compute the centroid (mean) for each class in the new class system.
     
-    This is useful for anchor-based training where we want to ensure
-    all samples in a batch come from the same class.
-    """
-    
-    def __init__(self, dataset, batch_size, num_classes=10):
-        """
-        Args:
-            dataset: PyTorch dataset with (image, label) pairs
-            batch_size: Number of samples per batch
-            num_classes: Number of classes in the dataset (default: 10 for CIFAR-10)
-        """
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.num_classes = num_classes
-        
-        # Organize dataset indices by class
-        self.class_to_indices = {i: [] for i in range(num_classes)}
-        for idx, (_, label) in enumerate(dataset):
-            self.class_to_indices[label].append(idx)
-        
-        # Convert to tensors for efficient indexing
-        for class_id in range(num_classes):
-            self.class_to_indices[class_id] = torch.tensor(self.class_to_indices[class_id])
-        
-        # Store the current position in each class
-        self.class_positions = {i: 0 for i in range(num_classes)}
-        
-        # Shuffle indices for each class
-        for class_id in range(num_classes):
-            perm = torch.randperm(len(self.class_to_indices[class_id]))
-            self.class_to_indices[class_id] = self.class_to_indices[class_id][perm]
-    
-    def sample_batch_from_class(self, class_id=None):
-        """
-        Sample a batch of images all from the same class.
-        
-        Args:
-            class_id: Specific class to sample from. If None, randomly select a class.
-        
-        Returns:
-            batch: Tensor of shape (batch_size, C, H, W)
-            class_id: The class that was sampled
-        """
-        # Randomly select a class if not specified
-        if class_id is None:
-            class_id = torch.randint(0, self.num_classes, (1,)).item()
-        
-        # Get indices for this class
-        class_indices = self.class_to_indices[class_id]
-        current_pos = self.class_positions[class_id]
-        
-        # If we don't have enough samples left in this class, reshuffle
-        if current_pos + self.batch_size > len(class_indices):
-            perm = torch.randperm(len(class_indices))
-            self.class_to_indices[class_id] = class_indices[perm]
-            current_pos = 0
-            self.class_positions[class_id] = 0
-        
-        # Get batch indices
-        batch_indices = class_indices[current_pos:current_pos + self.batch_size]
-        self.class_positions[class_id] = current_pos + self.batch_size
-        
-        # Load the actual data
-        batch_data = []
-        for idx in batch_indices:
-            img, _ = self.dataset[idx.item()]
-            batch_data.append(img)
-        
-        batch = torch.stack(batch_data)
-        
-        return batch, class_id
-    
-    def __iter__(self):
-        """Iterator that yields batches indefinitely."""
-        while True:
-            batch, class_id = self.sample_batch_from_class()
-            yield batch, class_id
-
-
-def compute_class_centroids(dataset, num_classes=10, device='cuda'):
-    """
-    Compute the centroid (mean) for each class in the dataset.
+    Uses the class_to_indices mapping from ClassConditionedSampler to compute
+    centroids based on the clustered classes (after K-means).
     
     Args:
         dataset: PyTorch dataset with (image, label) pairs
-        num_classes: Number of classes
+        class_sampler: ClassConditionedSampler instance with class_to_indices mapping
         device: Device to store centroids
     
     Returns:
-        centroids: Tensor of shape (num_classes, C, H, W)
+        centroids: Tensor of shape (num_classes, C, H, W) where num_classes is the
+                  total number of classes after clustering
     """
-    print("Computing class centroids...")
+    print(f"Computing class centroids for {class_sampler.num_classes} classes...")
     
-    # Organize samples by class
-    class_samples = {i: [] for i in range(num_classes)}
-    
-    for idx, (img, label) in enumerate(dataset):
-        class_samples[label].append(img)
-        # Limit samples per class for efficiency (optional)
-        if len(class_samples[label]) >= 500:
-            continue
-    
-    # Compute mean for each class
+    # Compute mean for each class using the sampler's class_to_indices
     centroids = []
-    for class_id in range(num_classes):
-        if len(class_samples[class_id]) > 0:
-            class_tensor = torch.stack(class_samples[class_id])
+    for class_id in sorted(class_sampler.class_to_indices.keys()):
+        class_indices = class_sampler.class_to_indices[class_id]
+        
+        # Collect samples for this class
+        class_samples = []
+        for idx in class_indices[:500]:  # Limit to 500 samples per class for efficiency
+            img, _ = dataset[idx.item()]
+            class_samples.append(img)
+        
+        if len(class_samples) > 0:
+            class_tensor = torch.stack(class_samples)
             centroid = class_tensor.mean(dim=0)
             centroids.append(centroid)
         else:
-            # If no samples, use zeros
-            centroids.append(torch.zeros_like(class_samples[0][0]))
+            # If no samples, use zeros (should not happen)
+            print(f"Warning: Class {class_id} has no samples!")
+            centroids.append(torch.zeros(3, 32, 32))
     
     centroids = torch.stack(centroids).to(device)
     print(f"Centroids computed with shape: {centroids.shape}")
@@ -324,11 +248,16 @@ def train(argv):
         ),
     )
     
-    # Compute class centroids (e_1, ..., e_m)
-    class_centroids = compute_class_centroids(dataset, num_classes=10, device=device)
+    # Create the class-conditioned sampler first (performs clustering)
+    class_sampler = ClassConditionedSampler(dataset, FLAGS.batch_size, num_classes=10, num_subclasses=FLAGS.num_subclasses)
+
+    if FLAGS.visualize:
+        print("Visualizing class clusters...")
+        visualize_clusters(class_sampler, dataset)
     
-    # Use the class-conditioned sampler
-    class_sampler = ClassConditionedSampler(dataset, FLAGS.batch_size, num_classes=10)
+    # Compute class centroids based on the new class system (after clustering)
+    class_centroids = compute_class_centroids(dataset, class_sampler, device=device)
+    
     dataloader_iter = iter(class_sampler)
 
     # MODELS
@@ -400,7 +329,7 @@ def train(argv):
         for step in pbar:
             # Periodically update centroids
             if step > 0 and step % FLAGS.centroid_update_freq == 0:
-                class_centroids = compute_class_centroids(dataset, num_classes=10, device=device)
+                class_centroids = compute_class_centroids(dataset, class_sampler, device=device)
             
             optim.zero_grad()
             
@@ -453,18 +382,35 @@ def train(argv):
             # Combined loss: L_anchor = L_fm + lambda * L_anchor_reg
             loss = loss_fm + FLAGS.lambda_anchor * loss_anchor
             loss.backward()
+            
+            # Compute gradient norm before clipping
+            total_norm = 0.0
+            for p in net_model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+            grad_norm = total_norm ** 0.5
+            
             torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
             optim.step()
             sched.step()
             ema(net_model, ema_model, FLAGS.ema_decay)
             
-            # Log loss to wandb with class information
-            wandb.log({
-                "loss_fm": loss_fm.item(),
-                "regularized_loss": loss_anchor.item(),
-                "step": step, 
-                "lr": sched.get_last_lr()[0],
-            })
+            # Compute vector field value mean norm
+            with torch.no_grad():
+                vt_norm = torch.mean(torch.norm(vt.reshape(vt.shape[0], -1), dim=1)).item()
+            
+            # Log metrics to wandb every 100 steps
+            if step % 100 == 0:
+                wandb.log({
+                    "loss_fm": loss_fm.item(),
+                    "anchor_loss": loss_anchor.item(),
+                    "grad_norm": grad_norm,
+                    "vector_field_mean_norm": vt_norm,
+                    "step": step, 
+                    "lr": sched.get_last_lr()[0],
+                }, step=step)
+            
             pbar.set_postfix({
                 "loss": loss.item(), 
                 "loss_fm": loss_fm.item(), 
@@ -474,15 +420,15 @@ def train(argv):
 
             # sample and Saving the weights
             if FLAGS.save_step > 0 and step % FLAGS.save_step == 0 and step > 0:
-                generate_samples(net_model, FLAGS.parallel, savedir, step, net_="normal")
-                generate_samples(ema_model, FLAGS.parallel, savedir, step, net_="ema")
+                generate_samples(net_model, FLAGS.parallel, savedir, start_step + step, net_="normal")
+                generate_samples(ema_model, FLAGS.parallel, savedir, start_step + step, net_="ema")
                 
                 # Compute and log FID score
                 print("Computing FID score...")
                 fid_score = compute_fid_score(ema_model, FLAGS.parallel, num_gen=10000)
                 if fid_score is not None:
                     print(f"FID Score at step {step}: {fid_score}")
-                    wandb.log({"fid": fid_score, "step": step})
+                    wandb.log({"fid": fid_score, "step": step}, step=step)
                 
                 torch.save(
                     {

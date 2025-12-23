@@ -13,7 +13,7 @@ from cleanfid import fid
 from torchdiffeq import odeint
 from torchvision import datasets, transforms
 from tqdm import trange
-from utils_cifar import ema, generate_samples, infiniteloop
+from utils_cifar import ema, generate_samples, ClassConditionedSampler, compute_local_loss, infiniteloop, visualize_clusters
 
 from torchcfm.conditional_flow_matching import (
     ConditionalFlowMatcher,
@@ -41,6 +41,7 @@ flags.DEFINE_integer("batch_size", 128, help="batch size")  # Lipman et al uses 
 flags.DEFINE_integer("num_workers", 4, help="workers of Dataloader")
 flags.DEFINE_float("ema_decay", 0.9999, help="ema decay rate")
 flags.DEFINE_bool("parallel", False, help="multi gpu training")
+flags.DEFINE_integer("num_subclasses", 25, help="number of subclasses for class-conditioned sampling")
 
 # Checkpoint
 flags.DEFINE_string("checkpoint_path", "", help="path to checkpoint file to resume training from")
@@ -51,6 +52,8 @@ flags.DEFINE_integer(
     20000,
     help="frequency of saving checkpoints, 0 to disable during training",
 )
+
+flags.DEFINE_bool("visualize", True, help="visualize samples during training")
 
 
 use_cuda = torch.cuda.is_available()
@@ -194,15 +197,25 @@ def train(argv):
             ]
         ),
     )
-    dataloader = torch.utils.data.DataLoader(
+    
+    # Use regular DataLoader for normal OT-CFM training
+    from torch.utils.data import DataLoader
+    dataloader = DataLoader(
         dataset,
         batch_size=FLAGS.batch_size,
         shuffle=True,
         num_workers=FLAGS.num_workers,
         drop_last=True,
     )
+    
+    dataloader_iter = infiniteloop(dataloader)
+    
+    # Create a separate class-conditioned sampler for local loss computation
+    class_sampler = ClassConditionedSampler(dataset, FLAGS.batch_size, num_classes=10, num_subclasses=FLAGS.num_subclasses)
 
-    datalooper = infiniteloop(dataloader)
+    if FLAGS.visualize:
+        print("Visualizing class clusters...")
+        visualize_clusters(class_sampler, dataset)
 
     # MODELS
     net_model = UNetModelWrapper(
@@ -268,32 +281,70 @@ def train(argv):
     with trange(start_step, FLAGS.total_steps, dynamic_ncols=True, initial=start_step, total=FLAGS.total_steps) as pbar:
         for step in pbar:
             optim.zero_grad()
-            x1 = next(datalooper).to(device)
+            
+            # Sample a batch normally (mixed classes) for standard OT-CFM training
+            x1 = next(dataloader_iter).to(device)
+            
             x0 = torch.randn_like(x1)
             t, xt, ut = FM.sample_location_and_conditional_flow(x0, x1)
             vt = net_model(t, xt)
             loss = torch.mean((vt - ut) ** 2)
             loss.backward()
+            
+            # Compute gradient norm before clipping
+            total_norm = 0.0
+            for p in net_model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+            grad_norm = total_norm ** 0.5
+            
             torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)  # new
             optim.step()
             sched.step()
             ema(net_model, ema_model, FLAGS.ema_decay)  # new
             
-            # Log loss to wandb
-            wandb.log({"loss_fm": loss.item(), "step": step, "lr": sched.get_last_lr()[0]})
-            pbar.set_postfix({"loss": loss.item()})
+            # Compute vector field value mean norm
+            with torch.no_grad():
+                vt_norm = torch.mean(torch.norm(vt.reshape(vt.shape[0], -1), dim=1)).item()
+            
+            # Compute local loss for logging (not used for training)
+            # This measures the locality property using samples from the SAME CLASS
+            # Sample a batch from the same class for local loss computation
+            with torch.no_grad():
+                x1_same_class, sampled_class = class_sampler.sample_batch_from_class()
+                x1_same_class = x1_same_class.to(device)
+                x0_same_class = torch.randn_like(x1_same_class)
+                loss_local = compute_local_loss(net_model, x1_same_class, x0_same_class, sigma=sigma)
+            
+            # Log metrics to wandb every 100 steps
+            if step % 100 == 0:
+                wandb.log({
+                    "loss_fm": loss.item(), 
+                    "local_loss": loss_local.item(),
+                    "grad_norm": grad_norm,
+                    "vector_field_mean_norm": vt_norm,
+                    "lr": sched.get_last_lr()[0]
+                }, step=step)
+            
+            pbar.set_postfix({
+                "step": step,
+                "loss": loss.item(), 
+                "local_loss": loss_local.item(),
+                "class": sampled_class,
+            })
 
             # sample and Saving the weights
             if FLAGS.save_step > 0 and step % FLAGS.save_step == 0 and step > 0:
-                generate_samples(net_model, FLAGS.parallel, savedir, step, net_="normal")
-                generate_samples(ema_model, FLAGS.parallel, savedir, step, net_="ema")
+                generate_samples(net_model, FLAGS.parallel, savedir, start_step + step, net_="normal")
+                generate_samples(ema_model, FLAGS.parallel, savedir, start_step + step, net_="ema")
                 
                 # Compute and log FID score
                 print("Computing FID score...")
                 fid_score = compute_fid_score(ema_model, FLAGS.parallel, num_gen=10000)
                 if fid_score is not None:
                     print(f"FID Score at step {step}: {fid_score}")
-                    wandb.log({"fid": fid_score, "step": step})
+                    wandb.log({"fid": fid_score}, step=step)
                 
                 torch.save(
                     {
