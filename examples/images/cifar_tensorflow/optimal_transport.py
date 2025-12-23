@@ -78,19 +78,18 @@ class OTPlanSampler:
         
         Parameters
         ----------
-        x0 : tf.Tensor, shape (bs, *dim)
-            represents the source minibatch
-        x1 : tf.Tensor, shape (bs, *dim)
-            represents the target minibatch
+        x0 : np.ndarray, shape (bs, *dim)
+            represents the source minibatch (must be numpy array)
+        x1 : np.ndarray, shape (bs, *dim)
+            represents the target minibatch (must be numpy array)
         
         Returns
         -------
         p : numpy array, shape (bs, bs)
             represents the OT plan between minibatches
         """
-        # Convert to numpy for POT computation
-        x0_np = x0.numpy() if isinstance(x0, tf.Tensor) else x0
-        x1_np = x1.numpy() if isinstance(x1, tf.Tensor) else x1
+        x0_np = np.asarray(x0)
+        x1_np = np.asarray(x1)
         
         a, b = pot.unif(x0_np.shape[0]), pot.unif(x1_np.shape[0])
         
@@ -167,9 +166,25 @@ class OTPlanSampler:
         x0[i], x1[j] : tf.Tensor
             paired samples according to OT plan
         """
-        pi = self.get_map(x0, x1)
-        batch_size = x0.shape[0] if hasattr(x0, 'shape') else tf.shape(x0)[0].numpy()
-        i, j = self.sample_map(pi, batch_size, replace=replace)
+        def _sample_indices(x0_np, x1_np):
+            """Compute OT indices in eager mode (numpy)."""
+            pi = self.get_map(x0_np, x1_np)
+            batch_size = x0_np.shape[0]
+            i, j = self.sample_map(pi, batch_size, replace=replace)
+            return i.astype(np.int32), j.astype(np.int32)
+        
+        # Use tf.py_function to run numpy operations in eager mode
+        i, j = tf.py_function(
+            _sample_indices,
+            [x0, x1],
+            [tf.int32, tf.int32]
+        )
+        
+        # Set shapes for the indices (they will have shape [batch_size])
+        batch_size = x0.shape[0] if x0.shape[0] is not None else None
+        i.set_shape([batch_size])
+        j.set_shape([batch_size])
+        
         return tf.gather(x0, i), tf.gather(x1, j)
     
     def sample_plan_with_labels(self, x0, x1, y0=None, y1=None, replace=True):
@@ -188,9 +203,24 @@ class OTPlanSampler:
         -------
         x0[i], x1[j], y0[i], y1[j] : tf.Tensor
         """
-        pi = self.get_map(x0, x1)
-        batch_size = x0.shape[0] if hasattr(x0, 'shape') else tf.shape(x0)[0].numpy()
-        i, j = self.sample_map(pi, batch_size, replace=replace)
+        def _sample_indices(x0_np, x1_np):
+            """Compute OT indices in eager mode (numpy)."""
+            pi = self.get_map(x0_np, x1_np)
+            batch_size = x0_np.shape[0]
+            i, j = self.sample_map(pi, batch_size, replace=replace)
+            return i.astype(np.int32), j.astype(np.int32)
+        
+        # Use tf.py_function to run numpy operations in eager mode
+        i, j = tf.py_function(
+            _sample_indices,
+            [x0, x1],
+            [tf.int32, tf.int32]
+        )
+        
+        # Set shapes for the indices (they will have shape [batch_size])
+        batch_size = x0.shape[0] if x0.shape[0] is not None else None
+        i.set_shape([batch_size])
+        j.set_shape([batch_size])
         
         x0_paired = tf.gather(x0, i)
         x1_paired = tf.gather(x1, j)
