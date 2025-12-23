@@ -13,3 +13,5 @@ pot
 torchdiffeq
 absl-py
 clean-fid
+wandb
+scikit-learn

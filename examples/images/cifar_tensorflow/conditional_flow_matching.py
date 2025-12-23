@@ -259,7 +259,7 @@ class ExactOptimalTransportConditionalFlowMatcher(ConditionalFlowMatcher):
             Standard deviation of the probability path.
         """
         super().__init__(sigma)
-        from .optimal_transport import OTPlanSampler
+        from optimal_transport import OTPlanSampler
         self.ot_sampler = OTPlanSampler(method="exact")
     
     def sample_location_and_conditional_flow(self, x0, x1, t=None, return_noise=False):

@@ -130,7 +130,7 @@ To use the full library with the different examples, you can install dependencie
 ```bash
 # clone project
 git clone https://github.com/NhuGiap04/Locality-CFM.git
-cd conditional-flow-matching
+cd Locality-CFM
 
 # [OPTIONAL] create conda environment
 conda create -n torchcfm python=3.10
